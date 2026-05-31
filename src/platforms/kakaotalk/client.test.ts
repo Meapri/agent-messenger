@@ -16,6 +16,7 @@ const mockSendMessage = mock(() => Promise.resolve({}))
 const mockSendReply = mock(() => Promise.resolve({}))
 const mockReactMessage = mock(() => Promise.resolve({}))
 const mockDeleteMessage = mock(() => Promise.resolve({}))
+const mockEditMessage = mock(() => Promise.resolve({}))
 const mockMarkRead = mock(() => Promise.resolve({}))
 const mockClose = mock(() => {})
 const mockOnClose = mock((_handler: () => void) => {})
@@ -36,6 +37,7 @@ mock.module('./protocol/session', () => ({
     sendReply = mockSendReply
     reactMessage = mockReactMessage
     deleteMessage = mockDeleteMessage
+    editMessage = mockEditMessage
     markRead = mockMarkRead
     close = mockClose
     onClose = mockOnClose
@@ -61,6 +63,7 @@ function resetAllMocks() {
   mockSendReply.mockReset()
   mockReactMessage.mockReset()
   mockDeleteMessage.mockReset()
+  mockEditMessage.mockReset()
   mockMarkRead.mockReset()
   mockClose.mockReset()
   mockOnClose.mockReset()
@@ -760,6 +763,20 @@ describe('KakaoTalkClient', () => {
     })
   })
 
+  describe('getUnreadChats', () => {
+    it('filters chat rooms with unread_count > 0', async () => {
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const chats = await client.getUnreadChats()
+
+      expect(chats).toHaveLength(1)
+      expect(chats[0].chat_id).toBe('100')
+      expect(chats[0].unread_count).toBe(3)
+
+      client.close()
+    })
+  })
+
   describe('getMessages', () => {
     it('returns formatted messages', async () => {
       mockGetChatLogs.mockResolvedValueOnce({
@@ -925,6 +942,126 @@ describe('KakaoTalkClient', () => {
       const messages = await client.getMessages('100')
 
       expect(messages[0].attachment).toBeNull()
+
+      client.close()
+    })
+  })
+
+  describe('searchMessages', () => {
+    it('filters recent messages by query', async () => {
+      mockGetChatLogs.mockResolvedValueOnce({
+        body: {
+          status: 0,
+          chatLogs: [
+            { logId: makeLong(30), chatId: 100, type: 1, authorId: 42, message: 'hello market', sendAt: 1 },
+            { logId: makeLong(31), chatId: 100, type: 1, authorId: 42, message: 'other text', sendAt: 2 },
+          ],
+          eof: true,
+        },
+      })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const messages = await client.searchMessages('100', 'market')
+
+      expect(messages).toHaveLength(1)
+      expect(messages[0].log_id).toBe('30')
+
+      client.close()
+    })
+
+    it('supports regex matching', async () => {
+      mockGetChatLogs.mockResolvedValueOnce({
+        body: {
+          status: 0,
+          chatLogs: [
+            { logId: makeLong(32), chatId: 100, type: 1, authorId: 42, message: 'APR 540000', sendAt: 1 },
+            { logId: makeLong(33), chatId: 100, type: 1, authorId: 42, message: 'APR pending', sendAt: 2 },
+          ],
+          eof: true,
+        },
+      })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const messages = await client.searchMessages('100', '\\d+', { regex: true })
+
+      expect(messages.map((message) => message.log_id)).toEqual(['32'])
+
+      client.close()
+    })
+  })
+
+  describe('downloadAttachment', () => {
+    const originalFetch = globalThis.fetch
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch
+    })
+
+    it('downloads an attachment URL from message extra', async () => {
+      mockGetChatLogs.mockResolvedValueOnce({
+        body: {
+          status: 0,
+          chatLogs: [
+            {
+              logId: makeLong(40),
+              chatId: 100,
+              type: 2,
+              authorId: 42,
+              message: '',
+              sendAt: 1,
+              attachment: JSON.stringify({
+                url: 'https://talk.kakaocdn.net/dna/photo.jpg',
+                name: 'photo.jpg',
+                mt: 'image/jpeg',
+              }),
+            },
+          ],
+          eof: true,
+        },
+      })
+      globalThis.fetch = mock(() =>
+        Promise.resolve(new Response('image-bytes', { headers: { 'content-type': 'image/jpeg' } })),
+      ) as unknown as typeof fetch
+
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.downloadAttachment('100', '40')
+
+      expect(globalThis.fetch).toHaveBeenCalledWith('https://talk.kakaocdn.net/dna/photo.jpg')
+      expect(result.filename).toBe('photo.jpg')
+      expect(result.mime_type).toBe('image/jpeg')
+      expect(result.size).toBe('image-bytes'.length)
+
+      client.close()
+    })
+
+    it('rejects non-Kakao URLs unless explicitly allowed', async () => {
+      mockGetChatLogs.mockResolvedValueOnce({
+        body: {
+          status: 0,
+          chatLogs: [
+            {
+              logId: makeLong(41),
+              chatId: 100,
+              type: 18,
+              authorId: 42,
+              message: '',
+              sendAt: 1,
+              attachment: JSON.stringify({ url: 'https://example.com/file.bin' }),
+            },
+          ],
+          eof: true,
+        },
+      })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      try {
+        await client.downloadAttachment('100', '41')
+        throw new Error('expected to throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(KakaoTalkError)
+        expect((e as KakaoTalkError).code).toBe('attachment_url_not_allowed')
+      }
 
       client.close()
     })
@@ -1316,6 +1453,66 @@ describe('KakaoTalkClient', () => {
       } catch (e) {
         expect(e).toBeInstanceOf(KakaoTalkError)
         expect((e as KakaoTalkError).code).toBe('delete_message_failed')
+      }
+
+      client.close()
+    })
+  })
+
+  describe('editMessage', () => {
+    it('calls session.editMessage with parsed IDs and replacement text', async () => {
+      mockEditMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: 0 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.editMessage('100', '42', 'edited text')
+
+      expect(mockEditMessage).toHaveBeenCalledTimes(1)
+      const [chatIdArg, logIdArg, textArg] = mockEditMessage.mock.calls[0] as [
+        { toString(): string },
+        { toString(): string },
+        string,
+      ]
+      expect(chatIdArg.toString()).toBe('100')
+      expect(logIdArg.toString()).toBe('42')
+      expect(textArg).toBe('edited text')
+      expect(result).toEqual({
+        success: true,
+        status_code: 0,
+        chat_id: '100',
+        log_id: '42',
+        message: 'edited text',
+      })
+
+      client.close()
+    })
+
+    it('reports unsupported REWRITE responses as success=false', async () => {
+      mockEditMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: -203 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.editMessage('100', '42', 'edited text')
+
+      expect(result).toEqual({
+        success: false,
+        status_code: -203,
+        chat_id: '100',
+        log_id: '42',
+        message: 'edited text',
+      })
+
+      client.close()
+    })
+
+    it('wraps transport errors as KakaoTalkError(edit_message_failed)', async () => {
+      mockEditMessage.mockRejectedValue(new Error('Socket closed'))
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      try {
+        await client.editMessage('100', '42', 'edited text')
+        throw new Error('expected to throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(KakaoTalkError)
+        expect((e as KakaoTalkError).code).toBe('edit_message_failed')
       }
 
       client.close()

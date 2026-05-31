@@ -19,6 +19,8 @@ import {
   type KakaoChat,
   type KakaoDeleteMessageResult,
   type KakaoDeviceType,
+  type KakaoDownloadAttachmentResult,
+  type KakaoEditMessageResult,
   type KakaoMarkReadResult,
   type KakaoMember,
   type KakaoMessage,
@@ -517,6 +519,156 @@ function buildReplyExtra(target: KakaoReplyTarget): KakaoReplyExtra {
   }
 }
 
+function makeMessageMatcher(
+  query: string,
+  options?: { caseSensitive?: boolean; regex?: boolean },
+): (message: KakaoMessage) => boolean {
+  if (query.length === 0) {
+    throw new KakaoTalkError('Search query is required', 'invalid_search_query')
+  }
+
+  if (options?.regex) {
+    const expression = new RegExp(query, options.caseSensitive ? undefined : 'i')
+    return (message) => expression.test(message.message)
+  }
+
+  const needle = options?.caseSensitive ? query : query.toLowerCase()
+  return (message) => {
+    const haystack = options?.caseSensitive ? message.message : message.message.toLowerCase()
+    return haystack.includes(needle)
+  }
+}
+
+const ATTACHMENT_URL_KEYS = [
+  'url',
+  'downloadUrl',
+  'originalUrl',
+  'imageUrl',
+  'videoUrl',
+  'audioUrl',
+  'fileUrl',
+  'thumbnailUrl',
+  'imageUrls',
+  'thumbnailUrls',
+  'urls',
+]
+
+const KAKAO_DOWNLOAD_HOSTS = ['kakao.com', 'kakaocdn.net']
+
+function collectUrls(value: unknown, urls: string[]): void {
+  if (typeof value === 'string') {
+    if (/^https?:\/\//i.test(value)) urls.push(value)
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectUrls(item, urls)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key.toLowerCase().includes('url')) collectUrls(item, urls)
+  }
+}
+
+function attachmentUrls(attachment: Record<string, unknown>, urlKey?: string): string[] {
+  if (urlKey) {
+    const urls: string[] = []
+    collectUrls(attachment[urlKey], urls)
+    return urls
+  }
+
+  const ordered: string[] = []
+  for (const key of ATTACHMENT_URL_KEYS) collectUrls(attachment[key], ordered)
+
+  const fallback: string[] = []
+  collectUrls(attachment, fallback)
+  for (const url of fallback) {
+    if (!ordered.includes(url)) ordered.push(url)
+  }
+  return ordered
+}
+
+function isAllowedKakaoDownloadUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.protocol !== 'https:') return false
+    const host = parsed.hostname.toLowerCase()
+    return KAKAO_DOWNLOAD_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))
+  } catch {
+    return false
+  }
+}
+
+function attachmentString(attachment: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = attachment[key]
+    if (typeof value === 'string' && value.length > 0) return value
+    if (Array.isArray(value)) {
+      const first = value.find((item) => typeof item === 'string' && item.length > 0)
+      if (typeof first === 'string') return first
+    }
+  }
+  return null
+}
+
+function extensionFromMime(mimeType: string | null): string {
+  switch (mimeType) {
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/png':
+      return 'png'
+    case 'image/gif':
+      return 'gif'
+    case 'image/webp':
+      return 'webp'
+    case 'video/mp4':
+      return 'mp4'
+    case 'audio/mp4':
+    case 'audio/m4a':
+      return 'm4a'
+    default:
+      return ''
+  }
+}
+
+function filenameFromUrl(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl)
+    const last = parsed.pathname.split('/').filter(Boolean).pop()
+    return last ? decodeURIComponent(last) : null
+  } catch {
+    return null
+  }
+}
+
+function sanitizeFilename(name: string): string {
+  const cleaned = name.split('\u0000').join('').replace(/[\\/]/g, '_').trim()
+  return cleaned.length > 0 ? cleaned : 'attachment'
+}
+
+function deriveAttachmentFilename(
+  attachment: Record<string, unknown>,
+  rawUrl: string,
+  logId: string,
+  mimeType: string | null,
+): string {
+  const explicit = attachmentString(attachment, ['name', 'filename', 'fileName', 'originalName'])
+  const fromUrl = filenameFromUrl(rawUrl)
+  const fallbackExtension = extensionFromMime(mimeType)
+  const base = sanitizeFilename(
+    explicit ?? fromUrl ?? `kakaotalk-${logId}${fallbackExtension ? `.${fallbackExtension}` : ''}`,
+  )
+  if (base.includes('.') || fallbackExtension.length === 0) return base
+  return `${base}.${fallbackExtension}`
+}
+
+function responseMimeType(response: Response, attachment: Record<string, unknown>): string | null {
+  const explicit = attachmentString(attachment, ['mt', 'mime', 'mimeType', 'contentType'])
+  const header = response.headers.get('content-type')?.split(';')[0]?.trim() ?? null
+  return explicit ?? header
+}
+
 export class KakaoTalkClient {
   private oauthToken: string | null = null
   private userId: string | null = null
@@ -790,6 +942,15 @@ export class KakaoTalkClient {
     })
   }
 
+  async getUnreadChats(options?: { all?: boolean; search?: string; resolveTitles?: boolean }): Promise<KakaoChat[]> {
+    const chats = await this.getChats({
+      all: options?.all ?? true,
+      search: options?.search,
+      resolveTitles: options?.resolveTitles,
+    })
+    return chats.filter((chat) => chat.unread_count > 0)
+  }
+
   /**
    * Resolve the user-set room title via CHATINFO. Returns null on any error
    * (network, malformed response, or no TITLE meta present). Designed to be
@@ -925,6 +1086,79 @@ export class KakaoTalkClient {
     })
   }
 
+  async searchMessages(
+    chatId: string,
+    query: string,
+    options?: { count?: number; from?: string; caseSensitive?: boolean; regex?: boolean },
+  ): Promise<KakaoMessage[]> {
+    try {
+      const matcher = makeMessageMatcher(query, options)
+      const messages = await this.getMessages(chatId, { count: options?.count ?? 200, from: options?.from })
+      return messages.filter(matcher)
+    } catch (error) {
+      throw wrapError(error, 'search_messages_failed')
+    }
+  }
+
+  async downloadAttachment(
+    chatId: string,
+    logId: string,
+    options?: { count?: number; urlKey?: string; urlIndex?: number; allowExternal?: boolean },
+  ): Promise<KakaoDownloadAttachmentResult> {
+    try {
+      const messages = await this.getMessages(chatId, { count: options?.count ?? 200 })
+      const message = messages.find((m) => m.log_id === logId)
+      if (!message) {
+        throw new KakaoTalkError(
+          `Message ${logId} not found in the latest ${options?.count ?? 200} messages of chat ${chatId}`,
+          'message_not_found',
+        )
+      }
+      if (!message.attachment) {
+        throw new KakaoTalkError(`Message ${logId} has no downloadable attachment`, 'attachment_not_found')
+      }
+
+      const urls = attachmentUrls(message.attachment, options?.urlKey)
+      const urlIndex = options?.urlIndex ?? 0
+      if (!Number.isInteger(urlIndex) || urlIndex < 0) {
+        throw new KakaoTalkError(`Invalid attachment URL index: ${urlIndex}`, 'invalid_attachment_url_index')
+      }
+
+      const url = urls[urlIndex]
+      if (!url) {
+        throw new KakaoTalkError(
+          `No downloadable URL found in attachment for message ${logId}`,
+          'attachment_url_not_found',
+        )
+      }
+      if (!options?.allowExternal && !isAllowedKakaoDownloadUrl(url)) {
+        throw new KakaoTalkError(`Refusing to download non-Kakao attachment URL: ${url}`, 'attachment_url_not_allowed')
+      }
+
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new KakaoTalkError(
+          `Attachment download failed: HTTP ${response.status}`,
+          'attachment_download_http_error',
+        )
+      }
+
+      const data = new Uint8Array(await response.arrayBuffer())
+      const mimeType = responseMimeType(response, message.attachment)
+      return {
+        chat_id: chatId,
+        log_id: logId,
+        filename: deriveAttachmentFilename(message.attachment, url, logId, mimeType),
+        mime_type: mimeType,
+        size: data.byteLength,
+        url,
+        data,
+      }
+    } catch (error) {
+      throw wrapError(error, 'download_attachment_failed')
+    }
+  }
+
   async getMembers(chatId: string): Promise<KakaoMember[]> {
     const parsedChatId = parseChatId(chatId)
     return this.executeWithReconnect(async ({ session }) => {
@@ -1033,6 +1267,33 @@ export class KakaoTalkClient {
         }
       } catch (error) {
         throw wrapError(error, 'delete_message_failed')
+      }
+    })
+  }
+
+  async editMessage(chatId: string, logId: string, text: string): Promise<KakaoEditMessageResult> {
+    if (text.length === 0) {
+      throw new KakaoTalkError('Edited message text is required', 'invalid_message')
+    }
+    const parsedChatId = parseChatId(chatId)
+    const parsedLogId = parseLogId(logId)
+
+    return this.executeWithReconnect(async ({ session }) => {
+      try {
+        const response = await session.editMessage(parsedChatId, parsedLogId, text)
+        if (response.statusCode !== 0) {
+          throw new Error(`REWRITE failed: statusCode=${response.statusCode}`)
+        }
+        const bodyStatus = typeof response.body.status === 'number' ? response.body.status : 0
+        return {
+          success: bodyStatus === 0,
+          status_code: bodyStatus,
+          chat_id: chatId,
+          log_id: logId,
+          message: text,
+        }
+      } catch (error) {
+        throw wrapError(error, 'edit_message_failed')
       }
     })
   }

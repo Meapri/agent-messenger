@@ -22,6 +22,23 @@ async function listAction(options: {
   }
 }
 
+async function unreadAction(options: {
+  account?: string
+  all?: boolean
+  search?: string
+  resolveTitles?: boolean
+  pretty?: boolean
+}): Promise<void> {
+  try {
+    const chats = await withKakaoClient(options, (client) =>
+      client.getUnreadChats({ all: options.all, search: options.search, resolveTitles: options.resolveTitles }),
+    )
+    console.log(formatOutput(chats, options.pretty))
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
 export const chatCommand = new Command('chat')
   .description('KakaoTalk chat commands')
   .addCommand(
@@ -33,4 +50,14 @@ export const chatCommand = new Command('chat')
       .option('--resolve-titles', 'Fetch user-set room titles via CHATINFO (slower; one extra LOCO call per chat)')
       .option('--pretty', 'Pretty print JSON output')
       .action(listAction),
+  )
+  .addCommand(
+    new Command('unread')
+      .description('List chat rooms with unread messages')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('--all', 'Fetch all chats before filtering (default in SDK; kept explicit for CLI symmetry)')
+      .option('--search <name>', 'Search for a chat by display name before filtering unread chats')
+      .option('--resolve-titles', 'Fetch user-set room titles via CHATINFO (slower; one extra LOCO call per chat)')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(unreadAction),
   )

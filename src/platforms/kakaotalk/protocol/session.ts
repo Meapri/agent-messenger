@@ -174,6 +174,18 @@ export class LocoSession {
     })
   }
 
+  // REWRITE — edit a previously sent message. Some KakaoTalk desktop device
+  // profiles reject this with body.status=-203; callers should surface that
+  // as a normal unsupported result instead of assuming the edit always applies.
+  async editMessage(chatId: Long, logId: Long, text: string): Promise<LocoPacket> {
+    if (!this.connection) throw new Error('Not connected')
+    return this.connection.sendPacket('REWRITE', {
+      chatId,
+      logId,
+      msg: text,
+    })
+  }
+
   // SHIP — request a media-upload ticket. Reserves a slot on a media LOCO
   // server and returns the token (k), host (vh), and port (p) the client must
   // connect to next. Sent on the main session.

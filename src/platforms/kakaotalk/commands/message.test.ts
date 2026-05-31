@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, it } from 'bun:test'
+import { existsSync, readFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 
 const originalConsoleLog = console.log
 
@@ -21,8 +23,25 @@ const mockReactMessage = mock(() =>
 const mockDeleteMessage = mock(() =>
   Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42' }),
 )
+const mockEditMessage = mock(() =>
+  Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', message: 'edited' }),
+)
+const mockSearchMessages = mock(() => Promise.resolve([{ log_id: '3', message: 'needle', sent_at: 3000 }]))
+const mockDownloadAttachment = mock(() =>
+  Promise.resolve({
+    chat_id: 'chat-123',
+    log_id: '42',
+    filename: 'download.bin',
+    mime_type: 'application/octet-stream',
+    size: 4,
+    url: 'https://talk.kakaocdn.net/file.bin',
+    data: new Uint8Array([1, 2, 3, 4]),
+  }),
+)
 
 const originalExit = process.exit
+const downloadPath = join('/tmp', 'agent-messenger-kakao-download-test.bin')
+const exportPath = join('/tmp', 'agent-messenger-kakao-export-test.jsonl')
 
 const mockClient = {
   getMessages: mockGetMessages,
@@ -30,6 +49,9 @@ const mockClient = {
   markRead: mockMarkRead,
   reactMessage: mockReactMessage,
   deleteMessage: mockDeleteMessage,
+  editMessage: mockEditMessage,
+  searchMessages: mockSearchMessages,
+  downloadAttachment: mockDownloadAttachment,
 }
 
 mock.module('./shared', () => ({
@@ -48,6 +70,9 @@ describe('message commands', () => {
     mockMarkRead.mockReset()
     mockReactMessage.mockReset()
     mockDeleteMessage.mockReset()
+    mockEditMessage.mockReset()
+    mockSearchMessages.mockReset()
+    mockDownloadAttachment.mockReset()
 
     mockWithKakaoClient.mockImplementation(async (_options: unknown, fn: (client: unknown) => Promise<unknown>) => {
       return fn(mockClient)
@@ -65,6 +90,21 @@ describe('message commands', () => {
     mockDeleteMessage.mockImplementation(() =>
       Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42' }),
     )
+    mockEditMessage.mockImplementation(() =>
+      Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', message: 'edited' }),
+    )
+    mockSearchMessages.mockImplementation(() => Promise.resolve([{ log_id: '3', message: 'needle', sent_at: 3000 }]))
+    mockDownloadAttachment.mockImplementation(() =>
+      Promise.resolve({
+        chat_id: 'chat-123',
+        log_id: '42',
+        filename: 'download.bin',
+        mime_type: 'application/octet-stream',
+        size: 4,
+        url: 'https://talk.kakaocdn.net/file.bin',
+        data: new Uint8Array([1, 2, 3, 4]),
+      }),
+    )
 
     consoleLogSpy = mock((..._args: unknown[]) => {})
     console.log = consoleLogSpy
@@ -73,6 +113,9 @@ describe('message commands', () => {
   afterEach(() => {
     console.log = originalConsoleLog
     process.exit = originalExit
+    for (const path of [downloadPath, exportPath]) {
+      if (existsSync(path)) unlinkSync(path)
+    }
   })
 
   describe('list', () => {
@@ -107,6 +150,74 @@ describe('message commands', () => {
         expect.objectContaining({ account: 'my-account' }),
         expect.any(Function),
       )
+    })
+  })
+
+  describe('search', () => {
+    it('searches messages with count/from options', async () => {
+      await messageCommand.parseAsync(['search', 'chat-123', 'needle', '--count', '50', '--from', '99'], {
+        from: 'user',
+      })
+
+      expect(mockSearchMessages).toHaveBeenCalledWith('chat-123', 'needle', {
+        count: 50,
+        from: '99',
+        caseSensitive: undefined,
+        regex: undefined,
+      })
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output[0].log_id).toBe('3')
+    })
+
+    it('forwards regex and case-sensitive flags', async () => {
+      await messageCommand.parseAsync(
+        ['search', 'chat-123', '^hello', '--count', '200', '--from', '0', '--regex', '--case-sensitive'],
+        {
+          from: 'user',
+        },
+      )
+
+      expect(mockSearchMessages).toHaveBeenCalledWith('chat-123', '^hello', {
+        count: 200,
+        from: '0',
+        caseSensitive: true,
+        regex: true,
+      })
+    })
+  })
+
+  describe('export', () => {
+    it('exports messages as jsonl to stdout', async () => {
+      mockGetMessages.mockImplementationOnce(() =>
+        Promise.resolve([
+          {
+            log_id: '1',
+            type: 1,
+            author_id: 7,
+            author_name: 'Alice',
+            message: 'Hello',
+            attachment: null,
+            sent_at: 1000,
+          },
+        ]),
+      )
+
+      await messageCommand.parseAsync(['export', 'chat-123', '--format', 'jsonl'], { from: 'user' })
+
+      expect(mockGetMessages).toHaveBeenCalledWith('chat-123', { count: 200, from: undefined })
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output.log_id).toBe('1')
+    })
+
+    it('writes export output to a file and reports metadata', async () => {
+      await messageCommand.parseAsync(['export', 'chat-123', '--format', 'jsonl', '--output', exportPath], {
+        from: 'user',
+      })
+
+      expect(readFileSync(exportPath, 'utf8')).toContain('"log_id":"1"')
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output.path).toBe(exportPath)
+      expect(output.format).toBe('jsonl')
     })
   })
 
@@ -320,6 +431,78 @@ describe('message commands', () => {
         expect.objectContaining({ account: 'my-account' }),
         expect.any(Function),
       )
+    })
+  })
+
+  describe('edit', () => {
+    it('edits a message by log-id', async () => {
+      await messageCommand.parseAsync(['edit', 'chat-123', '42', 'edited'], { from: 'user' })
+
+      expect(mockEditMessage).toHaveBeenCalledWith('chat-123', '42', 'edited')
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output).toEqual({
+        success: true,
+        status_code: 0,
+        chat_id: 'chat-123',
+        log_id: '42',
+        message: 'edited',
+      })
+    })
+
+    it('exits non-zero when edit result.success is false', async () => {
+      const exitSpy = mock((_code?: number): never => {
+        throw new Error('process.exit called')
+      })
+      process.exit = exitSpy as unknown as typeof process.exit
+      mockEditMessage.mockImplementationOnce(() =>
+        Promise.resolve({
+          success: false,
+          status_code: -203,
+          chat_id: 'chat-123',
+          log_id: '42',
+          message: 'edited',
+        }),
+      )
+
+      try {
+        await messageCommand.parseAsync(['edit', 'chat-123', '42', 'edited'], { from: 'user' })
+      } catch {
+        // process.exit stub throws to abort the action
+      }
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+    })
+  })
+
+  describe('download', () => {
+    it('downloads attachment bytes to the requested output path', async () => {
+      await messageCommand.parseAsync(['download', 'chat-123', '42', '--output', downloadPath], { from: 'user' })
+
+      expect(mockDownloadAttachment).toHaveBeenCalledWith('chat-123', '42', {
+        count: 200,
+        urlKey: undefined,
+        urlIndex: 0,
+        allowExternal: undefined,
+      })
+      expect([...readFileSync(downloadPath)]).toEqual([1, 2, 3, 4])
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output.path).toBe(downloadPath)
+      expect(output.size).toBe(4)
+      expect(output.data).toBeUndefined()
+    })
+
+    it('forwards URL selection options', async () => {
+      await messageCommand.parseAsync(
+        ['download', 'chat-123', '42', '--url-key', 'imageUrls', '--url-index', '1', '--allow-external-url'],
+        { from: 'user' },
+      )
+
+      expect(mockDownloadAttachment).toHaveBeenCalledWith('chat-123', '42', {
+        count: 200,
+        urlKey: 'imageUrls',
+        urlIndex: 1,
+        allowExternal: true,
+      })
     })
   })
 })

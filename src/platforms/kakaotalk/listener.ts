@@ -7,6 +7,7 @@ import {
   type KakaoEmoticonMessageType,
   type KakaoTalkListenerEventMap,
   type KakaoTalkPushDeletedMessageEvent,
+  type KakaoTalkPushEditedMessageEvent,
   type KakaoTalkPushEmoticonEvent,
   type KakaoTalkPushGenericEvent,
   type KakaoTalkPushMemberEvent,
@@ -43,6 +44,15 @@ function parseAttachmentJson(raw: unknown): Record<string, unknown> | null {
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function packetChatLog(body: Record<string, unknown>): Record<string, unknown> {
+  const chatLog = body.chatLog
+  return chatLog && typeof chatLog === 'object' && !Array.isArray(chatLog) ? (chatLog as Record<string, unknown>) : body
 }
 
 function extractPackIdFromPath(path: string | null): string | null {
@@ -241,6 +251,28 @@ export class KakaoTalkListener {
           log_id: longToString(body.logId),
         }
         this.emitter.emit('message_deleted', event)
+        this.emitter.emit('kakaotalk_event', { type: method, ...body })
+        break
+      }
+
+      case 'SYNCREWR': {
+        const chatLog = packetChatLog(body)
+        const event: KakaoTalkPushEditedMessageEvent = {
+          type: 'SYNCREWR',
+          chat_id: longToString(body.chatId ?? chatLog.chatId),
+          log_id: longToString(body.logId ?? chatLog.logId),
+          author_id: nullableNumber(chatLog.authorId ?? body.authorId),
+          message:
+            typeof chatLog.message === 'string'
+              ? chatLog.message
+              : typeof body.message === 'string'
+                ? body.message
+                : null,
+          message_type: nullableNumber(chatLog.type ?? body.type),
+          attachment: parseAttachmentJson(chatLog.attachment ?? body.attachment),
+          sent_at: nullableNumber(chatLog.sendAt ?? body.sendAt),
+        }
+        this.emitter.emit('message_edited', event)
         this.emitter.emit('kakaotalk_event', { type: method, ...body })
         break
       }

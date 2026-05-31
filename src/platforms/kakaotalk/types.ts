@@ -222,6 +222,24 @@ export interface KakaoDeleteMessageResult {
   log_id: string
 }
 
+export interface KakaoEditMessageResult {
+  success: boolean
+  status_code: number
+  chat_id: string
+  log_id: string
+  message: string
+}
+
+export interface KakaoDownloadAttachmentResult {
+  chat_id: string
+  log_id: string
+  filename: string
+  mime_type: string | null
+  size: number
+  url: string
+  data: Uint8Array
+}
+
 export const KakaoChatSchema = z.object({
   chat_id: z.string(),
   type: z.number(),
@@ -291,6 +309,24 @@ export const KakaoDeleteMessageResultSchema = z.object({
   status_code: z.number(),
   chat_id: z.string(),
   log_id: z.string(),
+})
+
+export const KakaoEditMessageResultSchema = z.object({
+  success: z.boolean(),
+  status_code: z.number(),
+  chat_id: z.string(),
+  log_id: z.string(),
+  message: z.string(),
+})
+
+export const KakaoDownloadAttachmentResultSchema = z.object({
+  chat_id: z.string(),
+  log_id: z.string(),
+  filename: z.string(),
+  mime_type: z.string().nullable(),
+  size: z.number(),
+  url: z.string(),
+  data: z.instanceof(Uint8Array),
 })
 
 export interface KakaoProfile {
@@ -410,6 +446,17 @@ export interface KakaoTalkPushDeletedMessageEvent {
   log_id: string
 }
 
+export interface KakaoTalkPushEditedMessageEvent {
+  type: 'SYNCREWR'
+  chat_id: string
+  log_id: string
+  author_id: number | null
+  message: string | null
+  message_type: number | null
+  attachment: Record<string, unknown> | null
+  sent_at: number | null
+}
+
 export interface KakaoTalkPushGenericEvent {
   type: string
   [key: string]: unknown
@@ -422,6 +469,7 @@ export type KakaoTalkPushEvent =
   | KakaoTalkPushReadEvent
   | KakaoTalkPushReactionEvent
   | KakaoTalkPushDeletedMessageEvent
+  | KakaoTalkPushEditedMessageEvent
   | KakaoTalkPushGenericEvent
 
 export interface KakaoTalkListenerEventMap {
@@ -432,6 +480,7 @@ export interface KakaoTalkListenerEventMap {
   read: [event: KakaoTalkPushReadEvent]
   reaction: [event: KakaoTalkPushReactionEvent]
   message_deleted: [event: KakaoTalkPushDeletedMessageEvent]
+  message_edited: [event: KakaoTalkPushEditedMessageEvent]
   kakaotalk_event: [event: KakaoTalkPushGenericEvent]
   connected: [info: { userId: string }]
   disconnected: []
@@ -488,4 +537,15 @@ export const KakaoTalkPushDeletedMessageEventSchema = z.object({
   type: z.literal('SYNCDLMSG'),
   chat_id: z.string(),
   log_id: z.string(),
+})
+
+export const KakaoTalkPushEditedMessageEventSchema = z.object({
+  type: z.literal('SYNCREWR'),
+  chat_id: z.string(),
+  log_id: z.string(),
+  author_id: z.number().nullable(),
+  message: z.string().nullable(),
+  message_type: z.number().nullable(),
+  attachment: z.record(z.string(), z.unknown()).nullable(),
+  sent_at: z.number().nullable(),
 })

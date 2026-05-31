@@ -12,9 +12,13 @@ const mockGetChats = mock(() =>
     { chat_id: 'chat-2', name: 'Direct', type: 'direct', member_count: 2 },
   ]),
 )
+const mockGetUnreadChats = mock(() =>
+  Promise.resolve([{ chat_id: 'chat-1', name: 'General', type: 'group', member_count: 5, unread_count: 2 }]),
+)
 
 const mockClient = {
   getChats: mockGetChats,
+  getUnreadChats: mockGetUnreadChats,
 }
 
 mock.module('./shared', () => ({
@@ -29,6 +33,7 @@ describe('chat commands', () => {
   beforeEach(() => {
     mockWithKakaoClient.mockReset()
     mockGetChats.mockReset()
+    mockGetUnreadChats.mockReset()
 
     mockWithKakaoClient.mockImplementation(async (_options: unknown, fn: (client: unknown) => Promise<unknown>) => {
       return fn(mockClient)
@@ -38,6 +43,9 @@ describe('chat commands', () => {
         { chat_id: 'chat-1', name: 'General', type: 'group', member_count: 5 },
         { chat_id: 'chat-2', name: 'Direct', type: 'direct', member_count: 2 },
       ]),
+    )
+    mockGetUnreadChats.mockImplementation(() =>
+      Promise.resolve([{ chat_id: 'chat-1', name: 'General', type: 'group', member_count: 5, unread_count: 2 }]),
     )
 
     consoleLogSpy = mock((..._args: unknown[]) => {})
@@ -89,6 +97,31 @@ describe('chat commands', () => {
 
       const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
       expect(output).toEqual([])
+    })
+  })
+
+  describe('unread', () => {
+    it('lists chat rooms with unread messages', async () => {
+      await chatCommand.parseAsync(['unread'], { from: 'user' })
+
+      expect(mockGetUnreadChats).toHaveBeenCalledWith({
+        all: undefined,
+        search: undefined,
+        resolveTitles: undefined,
+      })
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output).toHaveLength(1)
+      expect(output[0].unread_count).toBe(2)
+    })
+
+    it('passes search/all/title options to getUnreadChats', async () => {
+      await chatCommand.parseAsync(['unread', '--all', '--search', 'General', '--resolve-titles'], { from: 'user' })
+
+      expect(mockGetUnreadChats).toHaveBeenCalledWith({
+        all: true,
+        search: 'General',
+        resolveTitles: true,
+      })
     })
   })
 })

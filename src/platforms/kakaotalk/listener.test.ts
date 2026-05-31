@@ -5,6 +5,7 @@ import { KakaoTalkListener } from './listener'
 import type { LocoPacket } from './protocol/types'
 import type {
   KakaoTalkPushDeletedMessageEvent,
+  KakaoTalkPushEditedMessageEvent,
   KakaoTalkPushEmoticonEvent,
   KakaoTalkPushGenericEvent,
   KakaoTalkPushMemberEvent,
@@ -841,6 +842,42 @@ describe('KakaoTalkListener', () => {
           type: 'SYNCDLMSG',
           chat_id: '100',
           log_id: '200',
+        },
+      ])
+    })
+  })
+
+  describe('edited message events', () => {
+    it('emits message_edited on SYNCREWR push with parsed chatLog fields', async () => {
+      const { listener: l, client } = createListener()
+      listener = l
+
+      const editedMessages: KakaoTalkPushEditedMessageEvent[] = []
+      listener.on('message_edited', (event) => editedMessages.push(event))
+
+      await listener.start()
+      client.emitPush('SYNCREWR', {
+        chatId: { high: 0, low: 100 },
+        chatLog: {
+          logId: { high: 0, low: 200 },
+          authorId: 42,
+          message: 'edited',
+          type: 1,
+          sendAt: 1700000000,
+          attachment: '{"foo":"bar"}',
+        },
+      })
+
+      expect(editedMessages).toEqual([
+        {
+          type: 'SYNCREWR',
+          chat_id: '100',
+          log_id: '200',
+          author_id: 42,
+          message: 'edited',
+          message_type: 1,
+          attachment: { foo: 'bar' },
+          sent_at: 1700000000,
         },
       ])
     })

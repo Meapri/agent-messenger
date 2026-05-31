@@ -7,14 +7,21 @@ import {
   KakaoCredentialManager,
   KakaoChatSchema,
   KakaoConfigSchema,
+  KakaoDeleteMessageResultSchema,
+  KakaoDownloadAttachmentResultSchema,
+  KakaoEditMessageResultSchema,
   KakaoMessageSchema,
+  KakaoReactionResultSchema,
   KakaoSendResultSchema,
   KakaoTalkClient,
   KakaoTalkError,
   KakaoTalkListener,
+  KakaoTalkPushDeletedMessageEventSchema,
+  KakaoTalkPushEditedMessageEventSchema,
   KakaoTalkPushMemberEventSchema,
   KakaoTalkPushMessageEventSchema,
   KakaoProfileSchema,
+  KakaoTalkPushReactionEventSchema,
   KakaoTalkPushReadEventSchema,
 } from '@/platforms/kakaotalk/index'
 
@@ -50,6 +57,22 @@ it('KakaoSendResultSchema is exported from barrel', () => {
   expect(typeof KakaoSendResultSchema.parse).toBe('function')
 })
 
+it('KakaoReactionResultSchema is exported from barrel', () => {
+  expect(typeof KakaoReactionResultSchema.parse).toBe('function')
+})
+
+it('KakaoDeleteMessageResultSchema is exported from barrel', () => {
+  expect(typeof KakaoDeleteMessageResultSchema.parse).toBe('function')
+})
+
+it('KakaoEditMessageResultSchema is exported from barrel', () => {
+  expect(typeof KakaoEditMessageResultSchema.parse).toBe('function')
+})
+
+it('KakaoDownloadAttachmentResultSchema is exported from barrel', () => {
+  expect(typeof KakaoDownloadAttachmentResultSchema.parse).toBe('function')
+})
+
 it('KakaoAccountCredentialsSchema is exported from barrel', () => {
   expect(typeof KakaoAccountCredentialsSchema.parse).toBe('function')
 })
@@ -68,6 +91,18 @@ it('KakaoTalkPushMemberEventSchema is exported from barrel', () => {
 
 it('KakaoTalkPushReadEventSchema is exported from barrel', () => {
   expect(typeof KakaoTalkPushReadEventSchema.parse).toBe('function')
+})
+
+it('KakaoTalkPushReactionEventSchema is exported from barrel', () => {
+  expect(typeof KakaoTalkPushReactionEventSchema.parse).toBe('function')
+})
+
+it('KakaoTalkPushDeletedMessageEventSchema is exported from barrel', () => {
+  expect(typeof KakaoTalkPushDeletedMessageEventSchema.parse).toBe('function')
+})
+
+it('KakaoTalkPushEditedMessageEventSchema is exported from barrel', () => {
+  expect(typeof KakaoTalkPushEditedMessageEventSchema.parse).toBe('function')
 })
 
 it('KakaoProfileSchema is exported from barrel', () => {

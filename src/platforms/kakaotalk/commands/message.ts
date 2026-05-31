@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 
 import { Command } from 'commander'
@@ -116,6 +116,152 @@ async function uploadAction(
   }
 }
 
+type ExportFormat = 'json' | 'jsonl' | 'csv' | 'txt'
+
+function parseExportFormat(format: string | undefined): ExportFormat {
+  const value = format ?? 'json'
+  if (value === 'json' || value === 'jsonl' || value === 'csv' || value === 'txt') return value
+  throw new Error(`Invalid export format: ${value}`)
+}
+
+function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? '' : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function formatMessagesForExport(messages: KakaoMessage[], format: ExportFormat, pretty?: boolean): string {
+  switch (format) {
+    case 'json':
+      return formatOutput(messages, pretty)
+    case 'jsonl':
+      return messages.map((message) => JSON.stringify(message)).join('\n')
+    case 'csv': {
+      const rows = [
+        ['log_id', 'sent_at', 'author_id', 'author_name', 'type', 'message', 'attachment'],
+        ...messages.map((message) => [
+          message.log_id,
+          message.sent_at,
+          message.author_id,
+          message.author_name,
+          message.type,
+          message.message,
+          message.attachment ? JSON.stringify(message.attachment) : '',
+        ]),
+      ]
+      return rows.map((row) => row.map(csvCell).join(',')).join('\n')
+    }
+    case 'txt':
+      return messages
+        .map((message) => {
+          const author = message.author_name ?? String(message.author_id)
+          return `[${message.sent_at}] ${author}: ${message.message}`
+        })
+        .join('\n')
+  }
+}
+
+async function searchAction(
+  chatId: string,
+  query: string,
+  options: {
+    account?: string
+    count?: string
+    from?: string
+    caseSensitive?: boolean
+    regex?: boolean
+    pretty?: boolean
+  },
+): Promise<void> {
+  try {
+    const count = options.count ? Number.parseInt(options.count, 10) : 200
+    const messages = await withKakaoClient(options, (client) =>
+      client.searchMessages(chatId, query, {
+        count,
+        from: options.from,
+        caseSensitive: options.caseSensitive,
+        regex: options.regex,
+      }),
+    )
+    console.log(formatOutput(messages, options.pretty))
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
+async function exportAction(
+  chatId: string,
+  options: {
+    account?: string
+    count?: string
+    from?: string
+    format?: string
+    output?: string
+    pretty?: boolean
+  },
+): Promise<void> {
+  try {
+    const count = options.count ? Number.parseInt(options.count, 10) : 200
+    const format = parseExportFormat(options.format)
+    const messages = await withKakaoClient(options, (client) =>
+      client.getMessages(chatId, { count, from: options.from }),
+    )
+    const output = formatMessagesForExport(messages, format, options.pretty)
+    if (options.output) {
+      writeFileSync(resolve(options.output), output)
+      console.log(formatOutput({ path: resolve(options.output), count: messages.length, format }, options.pretty))
+      return
+    }
+    console.log(output)
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
+async function downloadAction(
+  chatId: string,
+  logId: string,
+  options: {
+    account?: string
+    count?: string
+    output?: string
+    urlKey?: string
+    urlIndex?: string
+    allowExternalUrl?: boolean
+    pretty?: boolean
+  },
+): Promise<void> {
+  try {
+    const count = options.count ? Number.parseInt(options.count, 10) : 200
+    const urlIndex = options.urlIndex ? Number.parseInt(options.urlIndex, 10) : undefined
+    const result = await withKakaoClient(options, (client) =>
+      client.downloadAttachment(chatId, logId, {
+        count,
+        urlKey: options.urlKey,
+        urlIndex,
+        allowExternal: options.allowExternalUrl,
+      }),
+    )
+    const path = resolve(options.output ?? result.filename)
+    writeFileSync(path, Buffer.from(result.data))
+    console.log(
+      formatOutput(
+        {
+          chat_id: result.chat_id,
+          log_id: result.log_id,
+          filename: result.filename,
+          mime_type: result.mime_type,
+          size: result.size,
+          url: result.url,
+          path,
+        },
+        options.pretty,
+      ),
+    )
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
 async function markReadAction(
   chatId: string,
   logId: string,
@@ -125,6 +271,23 @@ async function markReadAction(
     const result = await withKakaoClient(options, (client) =>
       client.markRead(chatId, logId, options.linkId !== undefined ? { linkId: options.linkId } : undefined),
     )
+    console.log(formatOutput(result, options.pretty))
+    if (!result.success) {
+      process.exit(1)
+    }
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
+async function editAction(
+  chatId: string,
+  logId: string,
+  text: string,
+  options: { account?: string; pretty?: boolean },
+): Promise<void> {
+  try {
+    const result = await withKakaoClient(options, (client) => client.editMessage(chatId, logId, text))
     console.log(formatOutput(result, options.pretty))
     if (!result.success) {
       process.exit(1)
@@ -184,6 +347,31 @@ export const messageCommand = new Command('message')
       .action(listAction),
   )
   .addCommand(
+    new Command('search')
+      .description('Search recent messages in a chat room')
+      .argument('<chat-id>', 'Chat room ID')
+      .argument('<query>', 'Search query')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('-n, --count <number>', 'Number of recent messages to scan', '200')
+      .option('--from <log-id>', 'Fetch messages starting from this log ID')
+      .option('--case-sensitive', 'Use case-sensitive matching')
+      .option('--regex', 'Treat query as a JavaScript regular expression')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(searchAction),
+  )
+  .addCommand(
+    new Command('export')
+      .description('Export recent messages from a chat room')
+      .argument('<chat-id>', 'Chat room ID')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('-n, --count <number>', 'Number of messages to export', '200')
+      .option('--from <log-id>', 'Fetch messages starting from this log ID')
+      .option('--format <format>', 'Export format: json | jsonl | csv | txt', 'json')
+      .option('-o, --output <path>', 'Write export to a file instead of stdout')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(exportAction),
+  )
+  .addCommand(
     new Command('send')
       .description('Send a text message to a chat room')
       .argument('<chat-id>', 'Chat room ID')
@@ -205,6 +393,30 @@ export const messageCommand = new Command('message')
       .option('--mime <type>', 'Override MIME type (otherwise inferred from filename)')
       .option('--pretty', 'Pretty print JSON output')
       .action(uploadAction),
+  )
+  .addCommand(
+    new Command('download')
+      .description('Download the media attachment from a message')
+      .argument('<chat-id>', 'Chat room ID')
+      .argument('<log-id>', 'Message log ID')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('-n, --count <number>', 'Number of recent messages to scan for the log ID', '200')
+      .option('-o, --output <path>', 'Write attachment to this file path (default: attachment filename)')
+      .option('--url-key <key>', 'Use a specific attachment URL field')
+      .option('--url-index <number>', 'Use a specific URL index when multiple URLs exist', '0')
+      .option('--allow-external-url', 'Allow non-Kakao attachment URLs')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(downloadAction),
+  )
+  .addCommand(
+    new Command('edit')
+      .description('Edit a KakaoTalk message by log ID (experimental; some device profiles reject REWRITE)')
+      .argument('<chat-id>', 'Chat room ID')
+      .argument('<log-id>', 'Message log ID')
+      .argument('<text>', 'Replacement message text')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(editAction),
   )
   .addCommand(
     new Command('mark-read')

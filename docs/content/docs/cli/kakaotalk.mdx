@@ -131,6 +131,10 @@ agent-kakaotalk chat list --all --search "project"
 
 # Resolve user-set room titles (one extra LOCO call per chat — slower but matches the in-app room name)
 agent-kakaotalk chat list --resolve-titles
+
+# List only chat rooms with unread messages
+agent-kakaotalk chat unread
+agent-kakaotalk chat unread --resolve-titles
 ```
 
 Output includes:
@@ -172,6 +176,15 @@ agent-kakaotalk message list <chat-id> -n 50
 agent-kakaotalk message list <chat-id> --from <log-id>
 agent-kakaotalk message list <chat-id> --pretty
 
+# Search recent messages in one chat
+agent-kakaotalk message search <chat-id> "query"
+agent-kakaotalk message search <chat-id> "삼성전자|SK하이닉스" --regex
+
+# Export recent messages
+agent-kakaotalk message export <chat-id> --format json
+agent-kakaotalk message export <chat-id> --format jsonl -o ./chat.jsonl
+agent-kakaotalk message export <chat-id> --format csv -n 1000
+
 # Send a text message
 agent-kakaotalk message send <chat-id> "Hello world"
 agent-kakaotalk message send <chat-id> "Hello world" --pretty
@@ -196,6 +209,13 @@ agent-kakaotalk message mark-read <chat-id> <log-id> --link-id <li>   # open cha
 # Add a message reaction
 agent-kakaotalk message react <chat-id> <log-id>
 agent-kakaotalk message react <chat-id> <log-id> 1
+
+# Download a media attachment from a message
+agent-kakaotalk message download <chat-id> <log-id>
+agent-kakaotalk message download <chat-id> <log-id> -o ./photo.jpg
+
+# Edit a message by log ID (experimental; some device slots return -203)
+agent-kakaotalk message edit <chat-id> <log-id> "Edited text"
 
 # Delete a message by log ID
 agent-kakaotalk message delete <chat-id> <log-id>
@@ -232,6 +252,16 @@ Output (JSON by default; `--pretty` pretty-prints the same JSON):
 ```
 
 All attachment kinds use the same SHIP / POST / COMPLETE LOCO pipeline (and MSHIP / MPOST / FORWARD for multi-photo). Each upload opens one fresh TCP+LOCO connection per attachment; multi-photo opens N connections in parallel.
+
+#### Search, Export, Download, Edit
+
+`message search` filters the recent message window from `message list`; increase `-n` when you need a wider scan. It supports plain substring matching by default and `--regex` for JavaScript regular expressions.
+
+`message export` writes the same message shape as `message list` in `json`, `jsonl`, `csv`, or `txt`. Use `-o <path>` to save to a file.
+
+`message download` resolves a message by `log_id`, finds attachment URL fields such as `url`, `downloadUrl`, `imageUrls`, or `thumbnailUrls`, and writes the downloaded bytes to disk. By default it only downloads `https://*.kakao.com` and `https://*.kakaocdn.net` URLs. Use `--url-key`, `--url-index`, or `--allow-external-url` only when inspecting a known attachment shape.
+
+`message edit` sends LOCO `REWRITE`. KakaoTalk may reject this for some desktop/sub-device profiles with a non-zero status such as `-203`; the CLI returns `{ "success": false }` and exits non-zero in that case.
 
 Each message includes:
 
@@ -298,13 +328,12 @@ Output includes:
 
 ## Limitations
 
-- No file download
 - No channel/chat room creation or management
 - No friend list management
 - Message reactions are exposed as numeric KakaoTalk reaction types. Type `1` is the broadly verified default; newer reaction IDs are accepted by the CLI/SDK but may depend on the KakaoTalk device slot and server support.
-- No message editing
+- Message editing is exposed through `message edit`, but KakaoTalk can reject `REWRITE` for some desktop/sub-device profiles.
 - No open chat browsing or joining
-- No search across chats
+- No search across all chats in one command (`message search` searches one chat at a time)
 
 - Read-only for stickers: sticker / animated-sticker messages are exposed via the `attachment` field on each message, but sending stickers is not supported
 - Chat IDs are numeric and not human-readable — use `chat list` to discover them
