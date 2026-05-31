@@ -6,11 +6,13 @@ import {
   KAKAO_EMOTICON_KIND_BY_TYPE,
   type KakaoEmoticonMessageType,
   type KakaoTalkListenerEventMap,
+  type KakaoTalkPushDeletedMessageEvent,
   type KakaoTalkPushEmoticonEvent,
   type KakaoTalkPushGenericEvent,
   type KakaoTalkPushMemberEvent,
   type KakaoTalkPushMessageEvent,
   type KakaoTalkPushReadEvent,
+  type KakaoTalkPushReactionEvent,
 } from './types'
 
 type EventKey = keyof KakaoTalkListenerEventMap
@@ -215,6 +217,30 @@ export class KakaoTalkListener {
           watermark: longToString(body.watermark),
         }
         this.emitter.emit('read', event)
+        this.emitter.emit('kakaotalk_event', { type: method, ...body })
+        break
+      }
+
+      case 'SYNCACTION': {
+        const event: KakaoTalkPushReactionEvent = {
+          type: 'SYNCACTION',
+          chat_id: longToString(body.chatId),
+          log_id: longToString(body.logId),
+          user_id: body.userId as number,
+          reaction_type: body.type as number,
+        }
+        this.emitter.emit('reaction', event)
+        this.emitter.emit('kakaotalk_event', { type: method, ...body })
+        break
+      }
+
+      case 'SYNCDLMSG': {
+        const event: KakaoTalkPushDeletedMessageEvent = {
+          type: 'SYNCDLMSG',
+          chat_id: longToString(body.chatId),
+          log_id: longToString(body.logId),
+        }
+        this.emitter.emit('message_deleted', event)
         this.emitter.emit('kakaotalk_event', { type: method, ...body })
         break
       }

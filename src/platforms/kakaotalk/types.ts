@@ -207,6 +207,21 @@ export interface KakaoMarkReadResult {
   watermark: string
 }
 
+export interface KakaoReactionResult {
+  success: boolean
+  status_code: number
+  chat_id: string
+  log_id: string
+  reaction_type: number
+}
+
+export interface KakaoDeleteMessageResult {
+  success: boolean
+  status_code: number
+  chat_id: string
+  log_id: string
+}
+
 export const KakaoChatSchema = z.object({
   chat_id: z.string(),
   type: z.number(),
@@ -261,6 +276,21 @@ export const KakaoMarkReadResultSchema = z.object({
   status_code: z.number(),
   chat_id: z.string(),
   watermark: z.string(),
+})
+
+export const KakaoReactionResultSchema = z.object({
+  success: z.boolean(),
+  status_code: z.number(),
+  chat_id: z.string(),
+  log_id: z.string(),
+  reaction_type: z.number(),
+})
+
+export const KakaoDeleteMessageResultSchema = z.object({
+  success: z.boolean(),
+  status_code: z.number(),
+  chat_id: z.string(),
+  log_id: z.string(),
 })
 
 export interface KakaoProfile {
@@ -366,6 +396,20 @@ export interface KakaoTalkPushReadEvent {
   watermark: string
 }
 
+export interface KakaoTalkPushReactionEvent {
+  type: 'SYNCACTION'
+  chat_id: string
+  log_id: string
+  user_id: number
+  reaction_type: number
+}
+
+export interface KakaoTalkPushDeletedMessageEvent {
+  type: 'SYNCDLMSG'
+  chat_id: string
+  log_id: string
+}
+
 export interface KakaoTalkPushGenericEvent {
   type: string
   [key: string]: unknown
@@ -376,6 +420,8 @@ export type KakaoTalkPushEvent =
   | KakaoTalkPushEmoticonEvent
   | KakaoTalkPushMemberEvent
   | KakaoTalkPushReadEvent
+  | KakaoTalkPushReactionEvent
+  | KakaoTalkPushDeletedMessageEvent
   | KakaoTalkPushGenericEvent
 
 export interface KakaoTalkListenerEventMap {
@@ -384,6 +430,8 @@ export interface KakaoTalkListenerEventMap {
   member_joined: [event: KakaoTalkPushMemberEvent]
   member_left: [event: KakaoTalkPushMemberEvent]
   read: [event: KakaoTalkPushReadEvent]
+  reaction: [event: KakaoTalkPushReactionEvent]
+  message_deleted: [event: KakaoTalkPushDeletedMessageEvent]
   kakaotalk_event: [event: KakaoTalkPushGenericEvent]
   connected: [info: { userId: string }]
   disconnected: []
@@ -426,4 +474,18 @@ export const KakaoTalkPushReadEventSchema = z.object({
   chat_id: z.string(),
   user_id: z.number(),
   watermark: z.string(),
+})
+
+export const KakaoTalkPushReactionEventSchema = z.object({
+  type: z.literal('SYNCACTION'),
+  chat_id: z.string(),
+  log_id: z.string(),
+  user_id: z.number(),
+  reaction_type: z.number(),
+})
+
+export const KakaoTalkPushDeletedMessageEventSchema = z.object({
+  type: z.literal('SYNCDLMSG'),
+  chat_id: z.string(),
+  log_id: z.string(),
 })

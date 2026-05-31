@@ -154,6 +154,26 @@ export class LocoSession {
     })
   }
 
+  // ACTION — add a bubble reaction to an existing message. KakaoTalk v26.4+
+  // exposes many reaction choices in-app; the LOCO packet keeps this as a
+  // numeric type so callers can pass newer reaction IDs as they become known.
+  async reactMessage(chatId: Long, logId: Long, type: number): Promise<LocoPacket> {
+    if (!this.connection) throw new Error('Not connected')
+    return this.connection.sendPacket('ACTION', {
+      chatId,
+      logId,
+      type,
+    })
+  }
+
+  async deleteMessage(chatId: Long, logId: Long): Promise<LocoPacket> {
+    if (!this.connection) throw new Error('Not connected')
+    return this.connection.sendPacket('DELETEMSG', {
+      chatId,
+      logId,
+    })
+  }
+
   // SHIP — request a media-upload ticket. Reserves a slot on a media LOCO
   // server and returns the token (k), host (vh), and port (p) the client must
   // connect to next. Sent on the main session.

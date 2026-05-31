@@ -134,6 +134,43 @@ async function markReadAction(
   }
 }
 
+async function reactAction(
+  chatId: string,
+  logId: string,
+  reactionType: string | undefined,
+  options: { account?: string; pretty?: boolean },
+): Promise<void> {
+  try {
+    const parsedReactionType = reactionType === undefined ? 1 : Number.parseInt(reactionType, 10)
+    if (!Number.isInteger(parsedReactionType) || parsedReactionType < 1) {
+      throw new Error(`Invalid reaction type: ${reactionType}`)
+    }
+    const result = await withKakaoClient(options, (client) => client.reactMessage(chatId, logId, parsedReactionType))
+    console.log(formatOutput(result, options.pretty))
+    if (!result.success) {
+      process.exit(1)
+    }
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
+async function deleteAction(
+  chatId: string,
+  logId: string,
+  options: { account?: string; pretty?: boolean },
+): Promise<void> {
+  try {
+    const result = await withKakaoClient(options, (client) => client.deleteMessage(chatId, logId))
+    console.log(formatOutput(result, options.pretty))
+    if (!result.success) {
+      process.exit(1)
+    }
+  } catch (error) {
+    handleError(error as Error)
+  }
+}
+
 export const messageCommand = new Command('message')
   .description('KakaoTalk message commands')
   .addCommand(
@@ -178,4 +215,23 @@ export const messageCommand = new Command('message')
       .option('--link-id <li>', 'Open-chat link ID (REQUIRED for open chats / 오픈채팅)')
       .option('--pretty', 'Pretty print JSON output')
       .action(markReadAction),
+  )
+  .addCommand(
+    new Command('react')
+      .description('Add a reaction to a KakaoTalk message')
+      .argument('<chat-id>', 'Chat room ID')
+      .argument('<log-id>', 'Message log ID')
+      .argument('[reaction-type]', 'Numeric KakaoTalk reaction type (default: 1)', '1')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(reactAction),
+  )
+  .addCommand(
+    new Command('delete')
+      .description('Delete a KakaoTalk message by log ID')
+      .argument('<chat-id>', 'Chat room ID')
+      .argument('<log-id>', 'Message log ID')
+      .option('--account <id>', 'Use a specific KakaoTalk account')
+      .option('--pretty', 'Pretty print JSON output')
+      .action(deleteAction),
   )

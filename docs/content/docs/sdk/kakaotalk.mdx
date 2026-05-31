@@ -92,6 +92,15 @@ Each `KakaoMember` includes `user_id`, `nickname`, profile image URLs, `status_m
 // Send a text message
 const result = await client.sendMessage('9876543210', 'Hello from SDK!')
 // → KakaoSendResult { success, status_code, chat_id, log_id, sent_at }
+
+// Add a reaction to an existing message. Type 1 is the broadly verified
+// KakaoTalk default; pass newer numeric types as KakaoTalk exposes them.
+const reaction = await client.reactMessage('9876543210', '3846830417126748160')
+// → KakaoReactionResult { success, status_code, chat_id, log_id, reaction_type }
+
+// Delete a message by log ID
+const deleted = await client.deleteMessage('9876543210', '3846830417126748160')
+// → KakaoDeleteMessageResult { success, status_code, chat_id, log_id }
 ```
 
 #### Attachments
@@ -165,6 +174,14 @@ listener.on('read', (event) => {
   console.log(`User ${event.user_id} read ${event.chat_id} up to ${event.watermark}`)
 })
 
+listener.on('reaction', (event) => {
+  console.log(`User ${event.user_id} reacted to ${event.log_id} with type ${event.reaction_type}`)
+})
+
+listener.on('message_deleted', (event) => {
+  console.log(`Message ${event.log_id} was deleted in ${event.chat_id}`)
+})
+
 listener.on('disconnected', () => console.log('LOCO session dropped'))
 listener.on('error', (err) => console.error(err))
 
@@ -174,16 +191,18 @@ await listener.start()
 
 ### Events
 
-| Event             | Payload                     | Description                             |
-| ----------------- | --------------------------- | --------------------------------------- |
-| `message`         | `KakaoTalkPushMessageEvent` | New message received                    |
-| `member_joined`   | `KakaoTalkPushMemberEvent`  | Member joined a chat                    |
-| `member_left`     | `KakaoTalkPushMemberEvent`  | Member left a chat                      |
-| `read`            | `KakaoTalkPushReadEvent`    | Read receipt (unread count decreased)   |
-| `kakaotalk_event` | `KakaoTalkPushGenericEvent` | Catch-all for all push events           |
-| `connected`       | `{ userId: string }`        | Connected to LOCO server                |
-| `disconnected`    | —                           | LOCO session dropped (see Reconnection) |
-| `error`           | `Error`                     | Connection or protocol error            |
+| Event             | Payload                            | Description                             |
+| ----------------- | ---------------------------------- | --------------------------------------- |
+| `message`         | `KakaoTalkPushMessageEvent`        | New message received                    |
+| `member_joined`   | `KakaoTalkPushMemberEvent`         | Member joined a chat                    |
+| `member_left`     | `KakaoTalkPushMemberEvent`         | Member left a chat                      |
+| `read`            | `KakaoTalkPushReadEvent`           | Read receipt (unread count decreased)   |
+| `reaction`        | `KakaoTalkPushReactionEvent`       | Message reaction changed                |
+| `message_deleted` | `KakaoTalkPushDeletedMessageEvent` | Message was deleted                     |
+| `kakaotalk_event` | `KakaoTalkPushGenericEvent`        | Catch-all for all push events           |
+| `connected`       | `{ userId: string }`               | Connected to LOCO server                |
+| `disconnected`    | —                                  | LOCO session dropped (see Reconnection) |
+| `error`           | `Error`                            | Connection or protocol error            |
 
 ### Reconnection
 

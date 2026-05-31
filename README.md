@@ -238,6 +238,9 @@ listener.on('message', (event) => {
 listener.on('emoticon', (event) => {
   console.log(`Sticker (${event.emoticon_kind}) in ${event.chat_id}: ${event.sticker_path}`)
 })
+listener.on('reaction', (event) => {
+  console.log(`Reaction ${event.reaction_type} on ${event.log_id}`)
+})
 await listener.start()
 ```
 
@@ -344,7 +347,7 @@ See the [TUI docs](https://agent-messenger.dev/docs/tui) for keybindings, archit
 | Search messages            |  ✅   |   ✅    |   —   |   —   |    —     |    ✅     |   —   |   —    |    ✅     |    —      |         ✅          |
 | Threads                    |  ✅   |   ✅    |   —   |   —   |    —     |    —     |   —   |   —    |     —     |    —      |         —           |
 | Channels & Users           |  ✅   |   ✅    |  ✅   |  ✅   | partial  |    —     |  ✅   |   ✅    |     —     |    —      |         ✅          |
-| Reactions                  |  ✅   |   ✅    |  ✅   |   —   |    —     |    ✅     |   —   |   —    |     —     |    —      |         —           |
+| Reactions                  |  ✅   |   ✅    |  ✅   |   —   |    —     |    ✅     |   —   |   —    |     —     |    ✅      |         —           |
 | File uploads               |  ✅   |   ✅    |  ✅   |   —   |    —     |    —     |   —   |   —    |     —     |    ✅     |         —           |
 | File downloads             |  ✅   |    —    |   —   |   —   |    —     |    —     |   —   |   —    |     —     |    —      |         —           |
 | Workspace snapshots        |  ✅   |   ✅    |  ✅   |  ✅   |    —     |    —     |   —   |   —    |     —     |    —      |         ✅          |

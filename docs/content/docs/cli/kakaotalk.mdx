@@ -193,6 +193,13 @@ agent-kakaotalk message upload <chat-id> ./data.bin --mime application/octet-str
 agent-kakaotalk message mark-read <chat-id> <log-id>
 agent-kakaotalk message mark-read <chat-id> <log-id> --link-id <li>   # open chats only
 
+# Add a message reaction
+agent-kakaotalk message react <chat-id> <log-id>
+agent-kakaotalk message react <chat-id> <log-id> 1
+
+# Delete a message by log ID
+agent-kakaotalk message delete <chat-id> <log-id>
+
 # Use a specific account
 agent-kakaotalk message list <chat-id> --account <account-id>
 agent-kakaotalk message send <chat-id> "Hello" --account <account-id>
@@ -294,8 +301,8 @@ Output includes:
 - No file download
 - No channel/chat room creation or management
 - No friend list management
-- No reactions or emoji
-- No message editing or deletion
+- Message reactions are exposed as numeric KakaoTalk reaction types. Type `1` is the broadly verified default; newer reaction IDs are accepted by the CLI/SDK but may depend on the KakaoTalk device slot and server support.
+- No message editing
 - No open chat browsing or joining
 - No search across chats
 

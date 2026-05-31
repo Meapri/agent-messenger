@@ -17,12 +17,14 @@ import type { ChatListResponse, LocoPacket, LoginListResponse, SyncState } from 
 import {
   KAKAO_MESSAGE_TYPE,
   type KakaoChat,
+  type KakaoDeleteMessageResult,
   type KakaoDeviceType,
   type KakaoMarkReadResult,
   type KakaoMember,
   type KakaoMessage,
   type KakaoMultiPhotoExtra,
   type KakaoProfile,
+  type KakaoReactionResult,
   type KakaoReplyExtra,
   type KakaoReplyTarget,
   type KakaoSendResult,
@@ -170,6 +172,13 @@ function parseLinkId(linkId: string): Long {
   } catch (cause) {
     throw new KakaoTalkError(`Invalid linkId: ${linkId}`, 'invalid_link_id', { cause })
   }
+}
+
+function parseReactionType(reactionType: number): number {
+  if (!Number.isInteger(reactionType) || reactionType < 1) {
+    throw new KakaoTalkError(`Invalid reactionType: ${reactionType}`, 'invalid_reaction_type')
+  }
+  return reactionType
 }
 
 function formatChat(chat: ChatData, title: string | null, nameCache: MemberNameCache): KakaoChat {
@@ -976,6 +985,54 @@ export class KakaoTalkClient {
         }
       } catch (error) {
         throw wrapError(error, 'send_message_failed')
+      }
+    })
+  }
+
+  async reactMessage(chatId: string, logId: string, reactionType = 1): Promise<KakaoReactionResult> {
+    const parsedChatId = parseChatId(chatId)
+    const parsedLogId = parseLogId(logId)
+    const parsedReactionType = parseReactionType(reactionType)
+
+    return this.executeWithReconnect(async ({ session }) => {
+      try {
+        const response = await session.reactMessage(parsedChatId, parsedLogId, parsedReactionType)
+        if (response.statusCode !== 0) {
+          throw new Error(`ACTION failed: statusCode=${response.statusCode}`)
+        }
+        const bodyStatus = typeof response.body.status === 'number' ? response.body.status : 0
+        return {
+          success: bodyStatus === 0,
+          status_code: bodyStatus,
+          chat_id: chatId,
+          log_id: logId,
+          reaction_type: parsedReactionType,
+        }
+      } catch (error) {
+        throw wrapError(error, 'react_message_failed')
+      }
+    })
+  }
+
+  async deleteMessage(chatId: string, logId: string): Promise<KakaoDeleteMessageResult> {
+    const parsedChatId = parseChatId(chatId)
+    const parsedLogId = parseLogId(logId)
+
+    return this.executeWithReconnect(async ({ session }) => {
+      try {
+        const response = await session.deleteMessage(parsedChatId, parsedLogId)
+        if (response.statusCode !== 0) {
+          throw new Error(`DELETEMSG failed: statusCode=${response.statusCode}`)
+        }
+        const bodyStatus = typeof response.body.status === 'number' ? response.body.status : 0
+        return {
+          success: bodyStatus === 0,
+          status_code: bodyStatus,
+          chat_id: chatId,
+          log_id: logId,
+        }
+      } catch (error) {
+        throw wrapError(error, 'delete_message_failed')
       }
     })
   }

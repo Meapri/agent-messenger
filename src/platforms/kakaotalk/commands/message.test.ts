@@ -15,6 +15,12 @@ const mockSendMessage = mock(() => Promise.resolve({ log_id: '2', message: 'Hi t
 const mockMarkRead = mock(() =>
   Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', watermark: '42' }),
 )
+const mockReactMessage = mock(() =>
+  Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', reaction_type: 1 }),
+)
+const mockDeleteMessage = mock(() =>
+  Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42' }),
+)
 
 const originalExit = process.exit
 
@@ -22,6 +28,8 @@ const mockClient = {
   getMessages: mockGetMessages,
   sendMessage: mockSendMessage,
   markRead: mockMarkRead,
+  reactMessage: mockReactMessage,
+  deleteMessage: mockDeleteMessage,
 }
 
 mock.module('./shared', () => ({
@@ -38,6 +46,8 @@ describe('message commands', () => {
     mockGetMessages.mockReset()
     mockSendMessage.mockReset()
     mockMarkRead.mockReset()
+    mockReactMessage.mockReset()
+    mockDeleteMessage.mockReset()
 
     mockWithKakaoClient.mockImplementation(async (_options: unknown, fn: (client: unknown) => Promise<unknown>) => {
       return fn(mockClient)
@@ -48,6 +58,12 @@ describe('message commands', () => {
     mockSendMessage.mockImplementation(() => Promise.resolve({ log_id: '2', message: 'Hi there', created_at: 2000 }))
     mockMarkRead.mockImplementation(() =>
       Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', watermark: '42' }),
+    )
+    mockReactMessage.mockImplementation(() =>
+      Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', reaction_type: 1 }),
+    )
+    mockDeleteMessage.mockImplementation(() =>
+      Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42' }),
     )
 
     consoleLogSpy = mock((..._args: unknown[]) => {})
@@ -215,6 +231,90 @@ describe('message commands', () => {
 
     it('passes account option to withKakaoClient', async () => {
       await messageCommand.parseAsync(['mark-read', 'chat-123', '42', '--account', 'my-account'], { from: 'user' })
+
+      expect(mockWithKakaoClient).toHaveBeenCalledWith(
+        expect.objectContaining({ account: 'my-account' }),
+        expect.any(Function),
+      )
+    })
+  })
+
+  describe('react', () => {
+    it('adds the default reaction type to a message', async () => {
+      await messageCommand.parseAsync(['react', 'chat-123', '42'], { from: 'user' })
+
+      expect(mockReactMessage).toHaveBeenCalledWith('chat-123', '42', 1)
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output).toEqual({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', reaction_type: 1 })
+    })
+
+    it('forwards a custom numeric reaction type', async () => {
+      mockReactMessage.mockImplementationOnce(() =>
+        Promise.resolve({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42', reaction_type: 7 }),
+      )
+
+      await messageCommand.parseAsync(['react', 'chat-123', '42', '7'], { from: 'user' })
+
+      expect(mockReactMessage).toHaveBeenCalledWith('chat-123', '42', 7)
+    })
+
+    it('exits non-zero when reaction result.success is false', async () => {
+      const exitSpy = mock((_code?: number): never => {
+        throw new Error('process.exit called')
+      })
+      process.exit = exitSpy as unknown as typeof process.exit
+      mockReactMessage.mockImplementationOnce(() =>
+        Promise.resolve({ success: false, status_code: -203, chat_id: 'chat-123', log_id: '42', reaction_type: 1 }),
+      )
+
+      try {
+        await messageCommand.parseAsync(['react', 'chat-123', '42'], { from: 'user' })
+      } catch {
+        // process.exit stub throws to abort the action
+      }
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+    })
+
+    it('passes account option to withKakaoClient', async () => {
+      await messageCommand.parseAsync(['react', 'chat-123', '42', '--account', 'my-account'], { from: 'user' })
+
+      expect(mockWithKakaoClient).toHaveBeenCalledWith(
+        expect.objectContaining({ account: 'my-account' }),
+        expect.any(Function),
+      )
+    })
+  })
+
+  describe('delete', () => {
+    it('deletes a message by log-id', async () => {
+      await messageCommand.parseAsync(['delete', 'chat-123', '42'], { from: 'user' })
+
+      expect(mockDeleteMessage).toHaveBeenCalledWith('chat-123', '42')
+      const output = JSON.parse(consoleLogSpy.mock.calls[0][0])
+      expect(output).toEqual({ success: true, status_code: 0, chat_id: 'chat-123', log_id: '42' })
+    })
+
+    it('exits non-zero when delete result.success is false', async () => {
+      const exitSpy = mock((_code?: number): never => {
+        throw new Error('process.exit called')
+      })
+      process.exit = exitSpy as unknown as typeof process.exit
+      mockDeleteMessage.mockImplementationOnce(() =>
+        Promise.resolve({ success: false, status_code: -203, chat_id: 'chat-123', log_id: '42' }),
+      )
+
+      try {
+        await messageCommand.parseAsync(['delete', 'chat-123', '42'], { from: 'user' })
+      } catch {
+        // process.exit stub throws to abort the action
+      }
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+    })
+
+    it('passes account option to withKakaoClient', async () => {
+      await messageCommand.parseAsync(['delete', 'chat-123', '42', '--account', 'my-account'], { from: 'user' })
 
       expect(mockWithKakaoClient).toHaveBeenCalledWith(
         expect.objectContaining({ account: 'my-account' }),

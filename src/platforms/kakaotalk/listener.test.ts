@@ -4,11 +4,13 @@ import type { KakaoSessionEvent, KakaoSessionEventHandler, KakaoPushHandler, Kak
 import { KakaoTalkListener } from './listener'
 import type { LocoPacket } from './protocol/types'
 import type {
+  KakaoTalkPushDeletedMessageEvent,
   KakaoTalkPushEmoticonEvent,
   KakaoTalkPushGenericEvent,
   KakaoTalkPushMemberEvent,
   KakaoTalkPushMessageEvent,
   KakaoTalkPushReadEvent,
+  KakaoTalkPushReactionEvent,
 } from './types'
 
 class FakeClient {
@@ -789,6 +791,58 @@ describe('KakaoTalkListener', () => {
       expect(attempts).toBe(2)
       expect(client.pushHandlers.size).toBe(1)
       expect(client.sessionHandlers.size).toBe(1)
+    })
+  })
+
+  describe('reaction events', () => {
+    it('emits reaction on SYNCACTION push with parsed fields', async () => {
+      const { listener: l, client } = createListener()
+      listener = l
+
+      const reactions: KakaoTalkPushReactionEvent[] = []
+      listener.on('reaction', (event) => reactions.push(event))
+
+      await listener.start()
+      client.emitPush('SYNCACTION', {
+        chatId: { high: 0, low: 100 },
+        logId: { high: 0, low: 200 },
+        userId: 42,
+        type: 1,
+      })
+
+      expect(reactions).toEqual([
+        {
+          type: 'SYNCACTION',
+          chat_id: '100',
+          log_id: '200',
+          user_id: 42,
+          reaction_type: 1,
+        },
+      ])
+    })
+  })
+
+  describe('deleted message events', () => {
+    it('emits message_deleted on SYNCDLMSG push with parsed fields', async () => {
+      const { listener: l, client } = createListener()
+      listener = l
+
+      const deletedMessages: KakaoTalkPushDeletedMessageEvent[] = []
+      listener.on('message_deleted', (event) => deletedMessages.push(event))
+
+      await listener.start()
+      client.emitPush('SYNCDLMSG', {
+        chatId: { high: 0, low: 100 },
+        logId: { high: 0, low: 200 },
+      })
+
+      expect(deletedMessages).toEqual([
+        {
+          type: 'SYNCDLMSG',
+          chat_id: '100',
+          log_id: '200',
+        },
+      ])
     })
   })
 })

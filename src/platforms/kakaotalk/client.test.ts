@@ -14,6 +14,8 @@ const mockGetMembersByIds = mock(() => Promise.resolve({}))
 const mockSyncMessages = mock(() => Promise.resolve({}))
 const mockSendMessage = mock(() => Promise.resolve({}))
 const mockSendReply = mock(() => Promise.resolve({}))
+const mockReactMessage = mock(() => Promise.resolve({}))
+const mockDeleteMessage = mock(() => Promise.resolve({}))
 const mockMarkRead = mock(() => Promise.resolve({}))
 const mockClose = mock(() => {})
 const mockOnClose = mock((_handler: () => void) => {})
@@ -32,6 +34,8 @@ mock.module('./protocol/session', () => ({
     syncMessages = mockSyncMessages
     sendMessage = mockSendMessage
     sendReply = mockSendReply
+    reactMessage = mockReactMessage
+    deleteMessage = mockDeleteMessage
     markRead = mockMarkRead
     close = mockClose
     onClose = mockOnClose
@@ -55,6 +59,8 @@ function resetAllMocks() {
   mockSyncMessages.mockReset()
   mockSendMessage.mockReset()
   mockSendReply.mockReset()
+  mockReactMessage.mockReset()
+  mockDeleteMessage.mockReset()
   mockMarkRead.mockReset()
   mockClose.mockReset()
   mockOnClose.mockReset()
@@ -1193,6 +1199,123 @@ describe('KakaoTalkClient', () => {
       } catch (e) {
         expect(e).toBeInstanceOf(KakaoTalkError)
         expect((e as KakaoTalkError).code).toBe('mark_read_failed')
+      }
+
+      client.close()
+    })
+  })
+
+  describe('reactMessage', () => {
+    it('calls session.reactMessage with parsed IDs and default reaction type', async () => {
+      mockReactMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: 0 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.reactMessage('100', '42')
+
+      expect(mockReactMessage).toHaveBeenCalledTimes(1)
+      const [chatIdArg, logIdArg, typeArg] = mockReactMessage.mock.calls[0] as [
+        { toString(): string },
+        { toString(): string },
+        number,
+      ]
+      expect(chatIdArg.toString()).toBe('100')
+      expect(logIdArg.toString()).toBe('42')
+      expect(typeArg).toBe(1)
+      expect(result).toEqual({ success: true, status_code: 0, chat_id: '100', log_id: '42', reaction_type: 1 })
+
+      client.close()
+    })
+
+    it('forwards a custom numeric reaction type', async () => {
+      mockReactMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: 0 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      await client.reactMessage('100', '42', 7)
+
+      const [, , typeArg] = mockReactMessage.mock.calls[0] as [unknown, unknown, number]
+      expect(typeArg).toBe(7)
+
+      client.close()
+    })
+
+    it('reports failure from body.status', async () => {
+      mockReactMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: -203 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.reactMessage('100', '42')
+
+      expect(result).toEqual({ success: false, status_code: -203, chat_id: '100', log_id: '42', reaction_type: 1 })
+
+      client.close()
+    })
+
+    it('throws KakaoTalkError(invalid_reaction_type) for non-positive reaction type', async () => {
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      try {
+        await client.reactMessage('100', '42', 0)
+        throw new Error('expected to throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(KakaoTalkError)
+        expect((e as KakaoTalkError).code).toBe('invalid_reaction_type')
+      }
+
+      client.close()
+    })
+
+    it('wraps transport errors as KakaoTalkError(react_message_failed)', async () => {
+      mockReactMessage.mockRejectedValue(new Error('Socket closed'))
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      try {
+        await client.reactMessage('100', '42')
+        throw new Error('expected to throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(KakaoTalkError)
+        expect((e as KakaoTalkError).code).toBe('react_message_failed')
+      }
+
+      client.close()
+    })
+  })
+
+  describe('deleteMessage', () => {
+    it('calls session.deleteMessage with parsed IDs', async () => {
+      mockDeleteMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: 0 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.deleteMessage('100', '42')
+
+      expect(mockDeleteMessage).toHaveBeenCalledTimes(1)
+      const [chatIdArg, logIdArg] = mockDeleteMessage.mock.calls[0] as [{ toString(): string }, { toString(): string }]
+      expect(chatIdArg.toString()).toBe('100')
+      expect(logIdArg.toString()).toBe('42')
+      expect(result).toEqual({ success: true, status_code: 0, chat_id: '100', log_id: '42' })
+
+      client.close()
+    })
+
+    it('reports failure from body.status', async () => {
+      mockDeleteMessage.mockResolvedValueOnce({ statusCode: 0, body: { status: -203 } })
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      const result = await client.deleteMessage('100', '42')
+
+      expect(result).toEqual({ success: false, status_code: -203, chat_id: '100', log_id: '42' })
+
+      client.close()
+    })
+
+    it('wraps transport errors as KakaoTalkError(delete_message_failed)', async () => {
+      mockDeleteMessage.mockRejectedValue(new Error('Socket closed'))
+      const client = await new KakaoTalkClient().login({ oauthToken: 'token', userId: 'user1', deviceUuid: 'device1' })
+
+      try {
+        await client.deleteMessage('100', '42')
+        throw new Error('expected to throw')
+      } catch (e) {
+        expect(e).toBeInstanceOf(KakaoTalkError)
+        expect((e as KakaoTalkError).code).toBe('delete_message_failed')
       }
 
       client.close()
